@@ -31,6 +31,8 @@ class Comment_model extends Emerald_Model {
     /** @var string */
     protected $time_updated;
 
+    protected $replies;
+
     // generated
     protected $comments;
     protected $likes;
@@ -142,6 +144,12 @@ class Comment_model extends Emerald_Model {
         return $this->likes;
     }
 
+
+    public function get_replies()
+    {
+        return $this->replies;
+    }
+
     /**
      * @param int $likes
      * @return bool
@@ -153,9 +161,9 @@ class Comment_model extends Emerald_Model {
     }
 
     /**
-     * @return Int
+     * @return int|null
      */
-    public function get_reply_id(): int
+    public function get_reply_id(): ?int
     {
         return $this->reply_id;
     }
@@ -234,7 +242,11 @@ class Comment_model extends Emerald_Model {
      */
     public static function get_all_by_assign_id(int $assign_id): array
     {
-        return static::transform_many(App::get_s()->from(self::CLASS_TABLE)->where(['assign_id' => $assign_id])->orderBy('time_created', 'ASC')->many());
+        $comments = App::get_s()->from(self::CLASS_TABLE)->where(['assign_id' => $assign_id, 'reply_id' => null])->orderBy('time_created', 'ASC')->many();
+        foreach ($comments as $key => $comment) {
+            $comments[$key]['replies'] = self::get_all_by_replay_id($comment['id']);
+        }
+        return static::transform_many($comments);
     }
 
     /**
@@ -245,12 +257,23 @@ class Comment_model extends Emerald_Model {
      */
     public function increment_likes(User_model $user): bool
     {
-        // TODO: task 3, лайк комментария
+        App::get_s()->from(self::get_table())
+            ->where(['id' => $this->get_id()])
+            ->update(sprintf('likes = likes + %s', App::get_s()->quote(1)))
+            ->execute();
+        $user->decrement_likes();
+        return TRUE;
     }
 
     public static function get_all_by_replay_id(int $reply_id)
     {
-        // TODO task 2, дополнительно, вложенность комментариев
+        $comments = App::get_s()->from(self::CLASS_TABLE)->where(['reply_id' => $reply_id])->orderBy('time_created', 'ASC')->many();
+        if (count($comments)) {
+            foreach ($comments as $comment) {
+                $comment['replies'] = self::get_all_by_replay_id($comment['id']);
+            }
+        }
+        return static::preparation_many(static::transform_many($comments));
     }
 
     /**
@@ -286,10 +309,16 @@ class Comment_model extends Emerald_Model {
 
         $o->likes = $data->get_likes();
 
+        $o->replies = $data->get_replies();
+
         $o->time_created = $data->get_time_created();
         $o->time_updated = $data->get_time_updated();
 
         return $o;
     }
 
+    public static function find_by_id(int $id): Comment_model
+    {
+        return static::transform_one(App::get_s()->from(self::CLASS_TABLE)->where(['id' => $id])->one());
+    }
 }

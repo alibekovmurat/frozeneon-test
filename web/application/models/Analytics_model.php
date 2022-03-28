@@ -1,6 +1,8 @@
 <?php
 namespace Model;
 use App;
+use Exception;
+use stdClass;
 use System\Emerald\Emerald_model;
 
 class Analytics_model extends Emerald_Model
@@ -177,10 +179,55 @@ class Analytics_model extends Emerald_Model
         App::get_s()->from(self::CLASS_TABLE)->where(['id' => $this->get_id()])->delete()->execute();
         return App::get_s()->is_affected();
     }
+    /**
+     * @param self $data
+     * @param string $preparation
+     * @return stdClass
+     * @throws Exception
+     */
+    public static function preparation(Analytics_model $data, string $preparation = 'default')
+    {
+        switch ($preparation)
+        {
+            case 'default':
+                return self::_preparation_default($data);
+            default:
+                throw new Exception('undefined preparation type');
+        }
+    }
+
+
+    /**
+     * @param self $data
+     * @return stdClass
+     */
+    private static function _preparation_default(Analytics_model $data): stdClass
+    {
+        $o = new stdClass();
+
+        $o->id = $data->get_id();
+        $o->object = $data->get_object();
+        $o->action = $data->get_action();
+        $o->amount = $data->get_amount();
+
+        $o->time_created = $data->get_time_created();
+        $o->time_updated = $data->get_time_updated();
+
+        return $o;
+    }
 
     public function get_analytics_for_user(int $user_id): array
     {
         return static::transform_many(App::get_s()->from(self::CLASS_TABLE)->where(['user_id' => $user_id])->orderBy('time_created', 'ASC')->many());
+    }
+
+    public function get_boosterpack_history_for_user(int $user_id): array
+    {
+        return App::get_s()->from(self::CLASS_TABLE)->where(['user_id' => $user_id, 'object' => Transaction_info::BOOSTERPACK])
+            ->join(Boosterpack_info_model::CLASS_TABLE, [Analytics_model::CLASS_TABLE.'.object_id' => Boosterpack_info_model::CLASS_TABLE.'.id'])
+            ->join(Boosterpack_model::CLASS_TABLE, [Boosterpack_info_model::CLASS_TABLE.'.boosterpack_id' => Boosterpack_model::CLASS_TABLE.'.id'])
+            ->join(Item_model::CLASS_TABLE, [Boosterpack_info_model::CLASS_TABLE.'.item_id' => Item_model::CLASS_TABLE.'.id'])
+            ->orderBy(Analytics_model::CLASS_TABLE.'.time_created', 'ASC')->select(['*', 'items.price as received', 'boosterpack.price as boosterpack_price'])->many();
     }
 
 }

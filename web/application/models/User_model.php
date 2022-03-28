@@ -151,6 +151,13 @@ class User_model extends Emerald_model {
         return $this->save('likes_balance', $likes_balance);
     }
 
+    public function add_likes_balance($new_likes): bool
+    {
+        $total_likes = $this->likes_balance + $new_likes;
+        $this->likes_balance = $total_likes;
+        return $this->save('likes_balance', $total_likes);
+    }
+
     /**
      * @return float
      */
@@ -267,7 +274,17 @@ class User_model extends Emerald_model {
      */
     public function add_money(float $sum): bool
     {
-        // TODO: task 4, добавление денег
+        App::get_s()->from(self::get_table())
+            ->where(['id' => $this->get_id()])
+            ->update([
+                'wallet_balance' => $this->get_wallet_balance() + $sum,
+                'wallet_total_refilled' => $this->get_wallet_total_refilled() + $sum,
+            ])->execute();
+
+        if ( ! App::get_s()->is_affected())
+        {
+            return FALSE;
+        }
 
         return TRUE;
     }
@@ -281,7 +298,13 @@ class User_model extends Emerald_model {
      */
     public function remove_money(float $sum): bool
     {
-        // TODO: task 5, списание денег
+        App::get_s()->from(self::get_table())
+            ->where(['id' => $this->get_id()])
+            ->update([
+                'wallet_balance' => $this->get_wallet_balance() - $sum,
+                'wallet_total_withdrawn' => $this->get_wallet_total_withdrawn() + $sum
+            ])
+            ->execute();
 
         return TRUE;
     }
@@ -346,7 +369,7 @@ class User_model extends Emerald_model {
      */
     public static function find_user_by_email(string $email): User_model
     {
-        // TODO: task 1, аутентификация
+        return static::transform_one(App::get_s()->from(self::CLASS_TABLE)->where(['email' => $email])->one());
     }
 
     /**
@@ -403,6 +426,8 @@ class User_model extends Emerald_model {
                 return self::_preparation_main_page($data);
             case 'default':
                 return self::_preparation_default($data);
+            case 'totals':
+                return self::_preparation_totals($data);
             default:
                 throw new Exception('undefined preparation type');
         }
@@ -424,6 +449,25 @@ class User_model extends Emerald_model {
         $o->time_created = $data->get_time_created();
         $o->time_updated = $data->get_time_updated();
 
+
+        return $o;
+    }
+
+    /**
+     * @param User_model $data
+     * @return stdClass
+     */
+    private static function _preparation_totals(User_model $data)
+    {
+        $o = new stdClass();
+
+        $o->id = $data->get_id();
+
+        $o->personaname = $data->get_personaname();
+        $o->likes_balance = $data->get_likes_balance();
+        $o->wallet_balance = $data->get_wallet_balance();
+        $o->wallet_total_refilled = $data->get_wallet_total_refilled();
+        $o->wallet_total_withdrawn = $data->get_wallet_total_withdrawn();
 
         return $o;
     }

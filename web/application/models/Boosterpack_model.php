@@ -173,7 +173,32 @@ class Boosterpack_model extends Emerald_model
      */
     public function open(): int
     {
-        // TODO: task 5, покупка и открытие бустерпака
+        if ($this->get_price() > User_model::get_user()->get_wallet_balance()) {
+            throw new Exception('Insufficient funds');
+        }
+        App::get_s()->start_trans();
+        try {
+            $max_value = $this->get_bank() + ($this->get_price() - $this->get_us());
+            $items = $this->get_contains($max_value);
+            $prize = $items[array_rand($items)];
+            $booster_pack_info = Boosterpack_info_model::create(['boosterpack_id' => $this->get_id(), 'item_id' => $prize->get_id()]);
+            Analytics_model::create([
+                'user_id' => User_model::get_user()->get_id(),
+                'object' => Transaction_info::BOOSTERPACK,
+                'object_id' => $booster_pack_info->get_id(),
+                'action' => Transaction_type::WITHDRAW,
+                'amount' => $this->get_price(),
+            ]);
+            $profit = $this->get_bank() + $this->get_price() - $this->us - $prize->get_price();
+            $this->set_bank($profit);
+            User_model::get_user()->remove_money($this->get_price());
+            User_model::get_user()->add_likes_balance($prize->get_price());
+            App::get_s()->commit();
+            return $prize->get_price();
+        } catch (Exception $exception) {
+            App::get_s()->rollback();
+            throw new Exception('Some error occurred');
+        }
     }
 
     /**
@@ -183,7 +208,7 @@ class Boosterpack_model extends Emerald_model
      */
     public function get_contains(int $max_available_likes): array
     {
-        // TODO: task 5, покупка и открытие бустерпака
+        return Item_model::get_for_boosterpack($max_available_likes);
     }
 
 
@@ -231,4 +256,11 @@ class Boosterpack_model extends Emerald_model
     {
         // TODO: task 5, покупка и открытие бустерпака
     }
+
+    public static function find_by_id(int $id): Boosterpack_model
+    {
+        return static::transform_one(App::get_s()->from(self::CLASS_TABLE)->where(['id' => $id])->one());
+    }
+
+
 }

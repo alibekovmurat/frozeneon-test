@@ -1,7 +1,10 @@
 <?php
 
+use Model\Analytics_model;
 use Model\Boosterpack_model;
 use Model\Post_model;
+use Model\Transaction_info;
+use Model\Transaction_type;
 use Model\User_model;
 
 /**
@@ -45,41 +48,136 @@ class Main_page extends MY_Controller
 
     public function login()
     {
-        // TODO: task 1, аутентификация
-
-        return $this->response_success();
+        $this->load->helper(array('form', 'url'));
+        $this->load->library('form_validation');
+        $this->form_validation->set_rules('login', 'E-mail', 'required');
+        $this->form_validation->set_rules('password', 'Password', 'required',
+            array('required' => 'You must provide a %s.')
+        );
+        if ($this->form_validation->run() == FALSE)
+        {
+            return $this->response_error($this->form_validation->error_array()[0] ?? 'Validation Error',
+                ['errors' => $this->form_validation->error_array()], 422);
+        }
+        else
+        {
+            try {
+                $user = \Model\Login_model::login();
+            } catch (Exception $exception) {
+                return $this->response_error($exception->getMessage(),
+                    [], 422);
+            }
+        }
+        return $this->response_success(['user' => User_model::preparation($user, 'default')]);
     }
 
     public function logout()
     {
-        // TODO: task 1, аутентификация
+        if ( ! User_model::is_logged())
+        {
+            return $this->response_error(System\Libraries\Core::RESPONSE_GENERIC_NEED_AUTH);
+        }
+        \Model\Login_model::logout();
+        return redirect('/');
     }
 
     public function comment()
     {
-        // TODO: task 2, комментирование
+        if ( ! User_model::is_logged())
+        {
+            return $this->response_error(System\Libraries\Core::RESPONSE_GENERIC_NEED_AUTH);
+        }
+        $this->load->helper(array('form', 'url'));
+        $this->load->library('form_validation');
+        $this->form_validation->set_rules('postId', 'Post Id', 'required');
+        $this->form_validation->set_rules('commentText', 'Comment Text', 'required');
+        if ($this->form_validation->run() == FALSE)
+        {
+            return $this->response_error($this->form_validation->error_array()[0] ?? 'Validation Error',
+                ['errors' => $this->form_validation->error_array()], 422);
+        }
+        else
+        {
+            $data = [
+                'user_id' => User_model::get_user()->get_id(),
+                'assign_id' => $this->input->post('postId'),
+                'text' => $this->input->post('commentText'),
+                'likes' => 0,
+            ];
+            if ($this->input->post('replyId')) {
+                $data['reply_id'] = $this->input->post('replyId');
+            }
+            $comment = \Model\Comment_model::create($data);
+            return $this->response_success(['comment' => \Model\Comment_model::preparation($comment)]);
+        }
     }
 
     public function like_comment(int $comment_id)
     {
-        // TODO: task 3, лайк комментария
+        if ( ! User_model::is_logged())
+        {
+            return $this->response_error(System\Libraries\Core::RESPONSE_GENERIC_NEED_AUTH);
+        }
+        if (User_model::get_user()->get_likes_balance() < 1) {
+            return $this->response_error('Insufficient funds');
+        }
+        $comment = \Model\Comment_model::find_by_id($comment_id);
+        if (!$comment->is_loaded()) {
+            show_404();
+        } else {
+            $comment->increment_likes(User_model::get_user());
+        }
+        return $this->response_success(['likes' => $comment->reload()->get_likes()]);
     }
 
     public function like_post(int $post_id)
     {
-        // TODO: task 3, лайк поста
+        if ( ! User_model::is_logged())
+        {
+            return $this->response_error(System\Libraries\Core::RESPONSE_GENERIC_NEED_AUTH);
+        }
+        if (User_model::get_user()->get_likes_balance() < 1) {
+            return $this->response_error('Insufficient funds');
+        }
+        $post = Post_model::find_by_id($post_id);
+        if (!$post->is_loaded()) {
+            show_404();
+        } else {
+            $post->increment_likes(User_model::get_user());
+        }
+        return $this->response_success(['likes' => $post->reload()->get_likes()]);
     }
 
     public function add_money()
     {
-        // TODO: task 4, пополнение баланса
-
+        if ( ! User_model::is_logged())
+        {
+            return $this->response_error(System\Libraries\Core::RESPONSE_GENERIC_NEED_AUTH);
+        }
         $sum = (float)App::get_ci()->input->post('sum');
+        if ($sum > 0) {
+            User_model::get_user()->add_money($sum);
 
+            Analytics_model::create([
+                'user_id' => User_model::get_user()->get_id(),
+                'object' => Transaction_info::WALLET,
+                'action' => Transaction_type::REFILL,
+                'amount' => $sum
+            ]);
+
+            return $this->response_success();
+        } else {
+            return $this->response_error('not valid sum');
+        }
     }
 
     public function get_post(int $post_id) {
-        // TODO получения поста по id
+        $post = Post_model::find_by_id($post_id);
+        if (!$post->is_loaded()) {
+            show_404();
+        } else {
+            return $this->response_success(['post' => Post_model::preparation($post, 'full_info')]);
+        }
     }
 
     public function buy_boosterpack()
@@ -90,12 +188,42 @@ class Main_page extends MY_Controller
             return $this->response_error(System\Libraries\Core::RESPONSE_GENERIC_NEED_AUTH);
         }
 
-        // TODO: task 5, покупка и открытие бустерпака
+        $id = $this->input->post('id');
+        $booster_pack = Boosterpack_model::find_by_id($id);
+        try {
+            $amount = $booster_pack->open();
+            return $this->response_success(compact('amount'));
+        } catch (Exception $exception) {
+            return $this->response_error($exception->getMessage(), [],422);
+        }
     }
 
+    public function get_history()
+    {
+        if ( ! User_model::is_logged())
+        {
+            return $this->response_error(System\Libraries\Core::RESPONSE_GENERIC_NEED_AUTH);
+        }
+        return $this->response_success(['history' => Analytics_model::preparation_many((new Analytics_model())->get_analytics_for_user(User_model::get_user()->get_id()))]);
+    }
 
+    public function get_boosterpack_history()
+    {
+        if ( ! User_model::is_logged())
+        {
+            return $this->response_error(System\Libraries\Core::RESPONSE_GENERIC_NEED_AUTH);
+        }
+        return $this->response_success(['booster_history' => (new Analytics_model())->get_boosterpack_history_for_user(User_model::get_user()->get_id()), 'boosterpack_history']);
+    }
 
-
+    public function get_user_totals()
+    {
+        if ( ! User_model::is_logged())
+        {
+            return $this->response_error(System\Libraries\Core::RESPONSE_GENERIC_NEED_AUTH);
+        }
+        return $this->response_success(['totals' => User_model::preparation(User_model::get_user(), 'totals')]);
+    }
 
     /**
      * @return object|string|void
