@@ -6,6 +6,7 @@ var app = new Vue({
 		login: '',
 		pass: '',
 		post: false,
+		postComments: [],
 		invalidLogin: false,
 		invalidPass: false,
 		invalidSum: false,
@@ -13,8 +14,13 @@ var app = new Vue({
 		addSum: 0,
 		amount: 0,
 		likes: 0,
+		reply_id: false,
+		reply_to: false,
+		user_history: [],
+		booster_history: [],
 		commentText: '',
 		boosterpacks: [],
+		totals: false,
 	},
 	computed: {
 		test: function () {
@@ -75,12 +81,17 @@ var app = new Vue({
 				var comment = new FormData();
 				comment.append('postId', id);
 				comment.append('commentText', self.commentText);
+				if (self.reply_id) {
+					comment.append('replyId', self.reply_id);
+				}
 
 				axios.post(
 					'/main_page/comment',
 					comment
-				).then(function () {
-
+				).then(function (response) {
+					self.postComments.push(response.data.comment);
+					self.commentText = '';
+					self.reply_to = false;
 				});
 			}
 
@@ -108,6 +119,7 @@ var app = new Vue({
 				.get('/main_page/get_post/' + id)
 				.then(function (response) {
 					self.post = response.data.post;
+					self.postComments = response.data.post.coments;
 					if(self.post){
 						setTimeout(function () {
 							$('#postModal').modal('show');
@@ -125,6 +137,31 @@ var app = new Vue({
 				})
 
 		},
+		selectForReply: function (id, comment) {
+			this.reply_id = id;
+			this.reply_to = comment;
+		},
+		getHistory: function () {
+			var self = this;
+			const history_url = '/main_page/get_history';
+			axios
+				.get(history_url)
+				.then(function (response) {
+					self.user_history = response.data.history;
+				});
+			const totals_url = '/main_page/get_user_totals';
+			axios
+				.get(totals_url)
+				.then(function (response) {
+					self.totals = response.data.totals;
+				});
+			const boosterpack_history_url = '/main_page/get_boosterpack_history';
+			axios
+				.get(boosterpack_history_url)
+				.then(function (response) {
+					self.booster_history = response.data.booster_history
+				});
+		},
 		buyPack: function (id) {
 			var self= this;
 			var pack = new FormData();
@@ -137,7 +174,9 @@ var app = new Vue({
 							$('#amountModal').modal('show');
 						}, 500);
 					}
-				})
+				}).catch(function (error) {
+					alert(error.response.data.error_message);
+			})
 		}
 	}
 });

@@ -88,4 +88,10 @@ class Item_model extends Emerald_model {
 
         return App::get_s()->is_affected();
     }
+
+    public static function get_for_boosterpack(int $max_price) :array
+    {
+        return self::transform_many(App::get_s()->from(self::CLASS_TABLE)->where(['price <=' => $max_price])->many());
+    }
+
 }

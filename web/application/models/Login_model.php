@@ -25,9 +25,13 @@ class Login_model extends CI_Model {
      */
     public static function login(): User_model
     {
-        // TODO: task 1, аутентификация
-
-        self::start_session();
+        $user = User_model::find_user_by_email(App::get_ci()->input->post('login'));
+        if ($user->is_loaded() && App::get_ci()->input->post('password') === $user->get_password()) {
+            self::start_session($user->get_id());
+        } else {
+            throw new Exception('These credentials do not match our records.');
+        }
+        return $user;
     }
 
     public static function start_session(int $user_id)
